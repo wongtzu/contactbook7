@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>導師聯絡簿每日抄寫系統</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; background-color: #ffffff; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 98%; max-width: 1400px; display: flex; flex-direction: column; align-items: center; }
+        
+        .control-bar { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 20px; padding: 10px; flex-wrap: wrap; }
+        .info-tag { font-size: 1.5rem; font-weight: bold; background: #eef2f7; padding: 10px 20px; border-radius: 8px; border: 1px solid #d1d9e6; }
+        
+        .content-box { background-color: #f4f7fc; border-radius: 12px; padding: 40px; width: 100%; min-height: 400px; display: flex; justify-content: center; align-items: flex-start; }
+        
+        /* --- 原始設定 --- */
+        .main-text-chinese { font-size: 5.8rem; line-height: 1.8; font-weight: 600; color: #000000; white-space: pre-wrap; letter-spacing: 0.05em; }
+        .main-text-english { font-size: 4.0rem; line-height: 1.6; font-weight: 600; color: #000000; white-space: pre-wrap; word-break: break-word; }
+        .main-text-default { font-size: 3.5rem; line-height: 1.6; font-weight: 600; color: #000000; }
+        
+        /* --- 星期二設定：無白色框 --- */
+        .idiom-layout { width: 100%; }
+        .idiom-term { font-size: 5.8rem; font-weight: 900; color: #000; border-bottom: 5px solid #4a90e2; padding-bottom: 15px; margin-bottom: 25px; display: inline-block; }
+        .idiom-expl { font-size: 4.0rem; color: #333; line-height: 1.5; font-weight: 600; }
+
+        .wrong-word-container { position: relative; display: inline-block; margin: 0 0.15em; color: #000000; vertical-align: top; }
+        .red-circle { position: absolute; top: 54%; left: 48%; transform: translate(-50%, -50%); border: 6px solid #ff0000; border-radius: 50%; width: 1.4em; height: 1.6em; pointer-events: none; box-sizing: border-box; }
+
+        input[type="date"] { font-size: 1.5rem; padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
+        .btn-today { font-size: 1.4rem; padding: 8px 20px; background-color: #4a90e2; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+        @media (max-width: 1024px) {
+            .main-text-chinese { font-size: 3.8rem; }
+            .main-text-english { font-size: 2.2rem; }
+            .main-text-default { font-size: 2.5rem; }
+            .red-circle { border-width: 4px; }
+        }
+
+        /* 手機版排版調整 */
+        @media (max-width: 767px) {
+            .control-bar { gap: 8px; }
+            .info-tag, input[type="date"], .btn-today { font-size: 1.2rem; padding: 6px 12px; }
+            .main-text-chinese { font-size: 2rem; }
+            .main-text-english { font-size: 1.3rem; }
+            .main-text-default { font-size: 1.5rem; }
+            .red-circle { border-width: 3px; }
+            .idiom-term { font-size: 2.2rem; margin-bottom: 15px; }
+            .idiom-expl { font-size: 1.6rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="control-bar">
+        <span id="week-display" class="info-tag">第 -- 週</span>
+        <input type="date" id="date-picker" onchange="handleDateChange()">
+        <span id="weekday-display" class="info-tag">星期-</span>
+        <button class="btn-today" onclick="setToToday()">回到今天</button>
+    </div>
+    <div class="content-box">
+        <div id="display-area" class="main-text-default">載入中...</div>
+    </div>
+</div>
+<script>
+    const FALL_START = new Date(2026, 7, 31);     // 上學期
+    const SPRING_START = new Date(2027, 1, 15);   // 下學期（第2週開始） 
+    const mondayData1 = { 
+1: "走「頭」無路 → 投\n按「步」就班 → 部\n相形見「拙」 → 絀", 
+2: "惹「是」生非 → 事\n既往不「究」 → 咎\n杯盤狼「籍」 → 藉", 
+3: "冒險「患」難 → 犯\n名不「符」實 → 副\n披星「載」月 → 戴", 
+4: "白頭「諧」老 → 偕\n莫「明」其妙 → 名\n「即」時行樂 → 及", 
+5: "「箭」拔弩張 → 劍\n動「則」得咎 → 輒\n始作「蛹」者 → 俑", 
+6: "再接再「勵」 → 厲\n「重」山峻嶺 → 崇\n伶牙「利」齒 → 俐", 
+7: "白浪「濤」「濤」 → 滔\n名列前「矛」 → 茅\n不「齒」下問 → 恥", 
+8: "破「斧」沉舟 → 釜\n提心「吊」膽 → 弔\n「饒」勇善戰 → 驍", 
+9: "「燴」炙人口 → 膾\n老奸巨「滑」 → 猾\n如火如「茶」 → 荼", 
+10: "肆無忌「彈」 → 憚\n「磨」頂放踵 → 摩\n老牛「嗜」犢 → 舐", 
+11: "「泌」人心脾 → 沁\n美「侖」美奐 → 輪\n「瞻」養費用 → 贍", 
+12: "毛骨「聳」然 → 悚\n粗製「爛」造 → 濫\n「節」風沐雨 → 櫛", 
+13: "光風「齋」月 → 霽\n始終不「逾」 → 渝\n登報「銘」謝 → 鳴", 
+14: "不「醒」人事 → 省\n「循」私舞弊 → 徇\n急流「湧」退 → 勇", 
+15: "「垂」手可得 → 唾\n出類拔「粹」 → 萃\n提綱「契」領 → 挈", 
+16: "中流「柢」柱 → 砥\n「驅」之若鶩 → 趨\n對牛「談」琴 → 彈", 
+17: "傾家「盪」產 → 蕩\n追根究「抵」 → 柢\n金榜「提」名 → 題", 
+18: "破「啼」為笑 → 涕\n「托」泥帶水 → 拖\n按「耐」不住 → 捺", 
+19: "知書達「理」 → 禮\n民不「寥」生 → 聊\n衣衫襤「縷」 → 褸", 
+20: "死有餘「孤」 → 辜\n一「股」作氣 → 鼓\n「固」步自封 → 故" };
+
+    const tuesdayData1 = {
+1: "手足無措\n形容遇到事情時，舉止慌亂，不知道該怎麼辦的樣子。",
+2: "有備無患\n事前做好準備，可以避免禍患。",
+3: "紙上談兵\n比喻只會不切實際的空談，卻無法實際解決問題。",
+4: "驍勇善戰\n勇猛矯健，精於領兵作戰。",
+5: "汗馬功勞\n比喻在勞苦征戰中得到的功勞；現在泛指在事業上立下功勞，有所貢獻。",
+6: "出奇制勝\n派出奇兵，或用奇謀，解決難題，制敵取勝。多用於戰鬥、競賽有關的事。",
+7: "口若懸河\n形容人能言善辯，很會說話。",
+8: "呼風喚雨\n比喻人神通廣大，很有影響力。",
+9: "老當益壯\n形容人年紀雖大，但是身體健康，志氣豪壯，依然很有幹勁。",
+10: "憂心忡忡\n形容人心中有所牽掛，憂慮不安。",
+11: "一意孤行\n不接受他人的意見或勸說，固執己見，獨斷獨行。",
+12: "閒情逸致\n心中沒有牽掛，心境悠閒安逸，非常自在。",
+13: "因噎廢食\n因為怕吃飯噎住了，乾脆連飯也不吃；比喻因害怕犯錯或遇到困難，就把應該做的事情停止不做。",
+14: "醉生夢死\n形容人糊糊塗塗，過著像醉酒或做夢般的生活。",
+15: "恃才傲物\n仗恃自己的才華，態度驕傲，看不起別人。",
+16: "亡羊補牢\n比喻問題發生後，及時想辦法補救，免得遭受更大的損失。",
+17: "小心翼翼\n形容言語、態度、神情等方面十分謹慎，不敢疏忽。",
+18: "莫衷一是\n各有不同的意見與說法，無法判斷哪一個是正確的。",
+19: "鳳毛麟角\n比喻珍貴且稀少的人才或事物。",
+20: "大放厥詞\n原指大展文才；後多用來形容人大發議論或謬論。"
+};
+
+
+const wednesdayData1 = {
+1: "手足無措\n那個帥哥跟她講話，她就手足無措，連頭都不好意思抬起來。",
+2: "有備無患\n最近地震頻仍，家中最好備有手電筒、收音機、飲用水等，有備無患。",
+3: "紙上談兵\n若沒有經費，這個興建老人安養院的計畫，也只不過是紙上談兵罷了！",
+4: "驍勇善戰\n飛將軍李廣，驍勇善戰，是漢代赫赫有名的大將軍。",
+5: "汗馬功勞\n王副總每天工作超過十二個小時，為公司立下無數的汗馬功勞。",
+6: "出奇制勝\n這場球賽，競爭十分激烈，想獲得冠軍，必須出奇制勝。",
+7: "口若懸河\n憑你口若懸河般的口才，這次演講比賽的冠軍，想必非你莫屬。",
+8: "呼風喚雨\n他在公司裡呼風喚雨的能力，令人十分佩服。",
+9: "老當益壯\n王伯伯老當益壯，在馬拉松賽跑中一馬當先，奪得冠軍。",
+10: "憂心忡忡\n妹妹高燒不退，讓媽媽憂心忡忡，一夜未闔眼。",
+11: "一意孤行\n這件事情最終會失敗，都是你一意孤行的結果。",
+12: "閒情逸致\n為了準備園遊會的攤位活動，大家忙得不可開交，你竟然還有閒情逸致去看電影！",
+13: "因噎廢食\n你不能因為怕被同學欺負，就每天躲在家中，不去上學，這樣因噎廢食是不能解決問題的。",
+14: "醉生夢死\n林先生發了一筆意外之財後，就不再工作，每天過著醉生夢死的生活。",
+15: "恃才傲物\n做人要謙虛，太過恃才傲物，容易遭受打擊與批評。",
+16: "亡羊補牢\n你過去忙於工作，忽略了親子感情的培養，現在亡羊補牢，還不算太晚。",
+17: "小心翼翼\n知道媽媽這幾天心情不好，小玉講話都小心翼翼的，深怕又惹她生氣。",
+18: "莫衷一是\n有人支持興建核四，有人反對興建核四，大家各執己見，莫衷一是。",
+19: "鳳毛麟角\n目前世界上看懂這種文字的，已如鳳毛麟角，沒幾個人了。",
+20: "大放厥詞\n王議員一到議場上就大放厥詞，批評市政府官員無能。"
+};
+
+    const thursdayData1 = { 
+1: "courage (n.) /ˈkɝɪdʒ/ 勇氣\nalbum (n.) /ˈælbəm/ 相簿、集郵簿、唱片集\naccept (v.) /əkˈsɛpt/ 接受\ncrowded (adj.) /ˈkraʊdɪd/ 擁擠的",
+
+2: "improve (v.) /ɪˈmpruv/ 改善\nbrave (adj.) /brev/ 勇敢的\nmemory (n.) /ˈmɛməri/ 記憶\ndecorate (v.) /ˈdɛkəˌret/ 佈置",
+
+3: "curious (adj.) /ˈkjʊriəs/ 好奇的\nrecord (v.) /rɪˈkɔrd/ 記錄、錄音、(n.) 記錄、唱片\nallow (v.) /əˈlaʊ/ 允許\nenergy (n.) /ˈɛnɚdʒi/ 精力、能量",
+
+4: "confident (adj.) /ˈkɑnfədənt/ 有信心的\ncreate (v.) /kriˈet/ 創造\nfreedom (n.) /ˈfridəm/ 自由\ncareless (adj.) /ˈkɛrlɪs/ 粗心的",
+
+5: "protect (v.) /prəˈtɛkt/ 保護\nvaluable (adj.) /ˈvæljuəbəl/ 有價值的\nexplain (v.) /ɪkˈsplen/ 解釋\nadmire (v.) /ədˈmaɪr/ 欽佩、欣賞",
+
+6: "peaceful (adj.) /ˈpisfəl/ 寧靜的、和平的\ndevelop (v.) /dɪˈvɛləp/ 發展\ncompare (v.) /kəmˈpɛr/ 比較\ndanger (n.) /ˈdendʒɚ/ 危險",
+
+7: "intelligent (adj.) /ɪnˈtɛlədʒənt/ 有才智的\nprovide (v.) /prəˈvaɪd/ 供應\ninvitation (n.) /ˌɪnvəˈteʃən/ 邀請\nsucceed (v.) /səkˈsid/ 成功",
+
+8: "discover (v.) /dɪˈskʌvɚ/ 發現\nopinion (n.) /əˈpɪnjən/ 意見\nrespect (v.) /rɪˈspɛkt/ 尊敬、(n.) 尊敬\ntradition (n.) /trəˈdɪʃən/ 傳統",
+
+9: "energetic (adj.) /ˌɛnɚˈdʒɛtɪk/ 精力充沛的\navoid (v.) /əˈvɔɪd/ 避免\nimagine (v.) /ɪˈmædʒɪn/ 想像\ngenerous (adj.) /ˈdʒɛnərəs/ 慷慨的",
+
+10: "receive (v.) /rɪˈsiv/ 收到\nenvironment (n.) /ɪnˈvaɪrənmənt/ 環境\npromise (v.) /ˈprɑmɪs/ 答應\nactive (adj.) /ˈæktɪv/ 活躍的",
+11: "album (n.) /ˈælbəm/ 相簿、集郵簿、唱片集\nadvise (v.) /ədˈvaɪz/ 勸告\nbasement (n.) /ˈbesmənt/ 地下室\narrange (v.) /əˈrendʒ/ 排列、整理",
+
+12: "artist (n.) /ˈɑrtɪst/ 藝術家\nasleep (adj.) /əˈslip/ 睡著的\namount (n.) /əˈmaʊnt/ 總數\nattention (n.) /əˈtɛnʃən/ 注意、專心",
+
+13: "assume (v.) /əˈsum/ 假定\nalive (adj.) /əˈlaɪv/ 活著的\nambulance (n.) /ˈæmbjələns/ 救護車\napologize (v.) /əˈpɑləˌdʒaɪz/ 道歉",
+
+14: "area (n.) /ˈɛriə/ 地區、面積\nbitter (adj.) /ˈbɪtɚ/ 苦的、嚴酷的\nbiology (n.) /baɪˈɑlədʒi/ 生物學\nbroadcast (v.) /ˈbrɔdˌkæst/ 廣播",
+
+15: "button (v.) /ˈbʌtn/ 扣鈕扣、(n.) 鈕扣\nbundle (n.) /ˈbʌndl/ 捆、大量\ncancel (v.) /ˈkænsəl/ 取消\nbasic (adj.) /ˈbesɪk/ 基本的",
+
+16: "captain (n.) /ˈkæptən/ 隊長、機長、艦長\ncertain (adj.) /ˈsɝtn/ 肯定的\ncharge (v.) /tʃɑrdʒ/ 索價、充電、(n.) 費用、充電\nchildhood (n.) /ˈtʃaɪldˌhʊd/ 幼時",
+
+17: "clever (adj.) /ˈklɛvɚ/ 聰明伶俐的\ncompany (n.) /ˈkʌmpəni/ 公司\ncomplain (v.) /kəmˈplen/ 抱怨\ncomplete (adj.) /kəmˈplit/ 完整的、徹底的、(v.) 完成",
+
+18: "concern (v.) /kənˈsɝn/ 使擔心、(n.) 關懷\ncongratulation (n.) /kənˌgrætʃəˈleʃən/ 祝賀\ncontinue (v.) /kənˈtɪnju/ 繼續\ncontract (n.) /ˈkɑntrækt/ 契約、合同",
+
+19: "conversation (n.) /ˌkɑnvɚˈseʃən/ 會話\ncough (v.) /kɔf/ 咳嗽、(n.) 咳嗽\nculture (n.) /ˈkʌltʃɚ/ 文化\ncontrol (v.) /kənˈtrol/ 控制",
+
+20: "damage (v.) /ˈdæmɪdʒ/ 損害、(n.) 損害\ndecision (n.) /dɪˈsɪʒən/ 決定\ndesign (v.) /dɪˈzaɪn/ 設計、(n.) 圖案、設計\nclimate (n.) /ˈklaɪmət/ 氣候" };
+
+const fridayData1 = {1: "furniture (n.) /ˈfɝnɪtʃɚ/ 傢俱\ngentle (adj.) /ˈdʒɛntl/ 溫柔的\nsearch (v.) /sɝtʃ/ 搜尋、搜查\nvictory (n.) /ˈvɪktəri/ 勝利",
+
+2: "magazine (n.) /ˌmæɡəˈzin/ 雜誌\nignore (v.) /ɪɡˈnor/ 不理睬\nnarrow (adj.) /ˈnæro/ 窄的\ntalent (n.) /ˈtælənt/ 天才",
+
+3: "invent (v.) /ɪnˈvɛnt/ 發明\nhumble (adj.) /ˈhʌmbəl/ 謙恭的、微賤的\nmethod (n.) /ˈmɛθəd/ 方法\npraise (v.) /prez/ 讚美",
+
+4: "electric (adj.) /ɪˈlɛktrɪk/ 電的\nincome (n.) /ˈɪnˌkʌm/ 收入\nrepair (v.) /rɪˈpɛr/ 修理、(n.) 修理\nsymbol (n.) /ˈsɪmbəl/ 符號、象徵",
+
+5: "necessary (adj.) /ˈnɛsəˌsɛri/ 需要的\njudge (v.) /dʒʌdʒ/ 判斷、審判、(n.) 法官\npoison (n.) /ˈpɔɪzən/ 毒物\nspread (v.) /sprɛd/ 展開、散布",
+
+6: "local (adj.) /ˈlokəl/ 本地的、(n.) 當地居民\ninstrument (n.) /ˈɪnstrəmənt/ 儀器\nquit (v.) /kwɪt/ 放棄、離職\nresponsible (adj.) /rɪˈspɑnsəbəl/ 負責任的",
+
+7: "curtain (n.) /ˈkɝtn/ 窗簾、舞臺上的幕\nemploy (v.) /ɪmˈplɔɪ/ 僱用\npatient (n.) /ˈpeʃənt/ 病人\nrare (adj.) /rɛr/ 罕見的",
+
+8: "mirror (n.) /ˈmɪrɚ/ 鏡子\nobey (v.) /oˈbe/ 服從\npleasant (adj.) /ˈplɛzənt/ 愉快的、美好的\nproject (n.) /ˈprɑdʒɛkt/ 計畫",
+
+9: "nervous (adj.) /ˈnɝvəs/ 緊張的\nproduce (v.) /prəˈdus/ 製造、出產、(n.) 農產品\nreason (n.) /ˈrizən/ 理由\nsupport (v.) /səˈport/ 支持、(n.) 支持",
+
+10: "honesty (n.) /ˈɑnɪsti/ 誠實\nheater (n.) /ˈhitɚ/ 暖氣機\nunderline (v.) /ˌʌndɚˈlaɪn/ 劃線於……之下、強調、(n.) 底線\nwild (adj.) /waɪld/ 野生的、無法無天的",
+
+11: "scientist (n.) /ˈsaɪəntɪst/ 科學家\ngolden (adj.) /ˈgoldən/ 金色的\nselect (v.) /sɪˈlɛkt/ 挑選\nnecklace (n.) /ˈnɛklɪs/ 項鍊",
+
+12: "faucet (n.) /ˈfɔsɪt/ 水龍頭\nrefuse (v.) /rɪˈfjuz/ 拒絕\nsocial (adj.) /ˈsoʃəl/ 社會的、交際的\ndiamond (n.) /ˈdaɪəmənd/ 鑽石",
+
+13: "diligent (adj.) /ˈdɪlədʒənt/ 勤勉的\ngather (v.) /ˈɡæðɚ/ 集合\nocean (n.) /ˈoʃən/ 海洋\nrecover (v.) /rɪˈkʌvɚ/ 尋回、恢復",
+
+14: "hairdresser (n.) /ˈhɛrˌdrɛsɚ/ 美髮師\nincrease (v.) /ɪnˈkris/ 增加\nsilver (adj.) /ˈsɪlvɚ/ 銀的、銀白的、(n.) 銀\ntopic (n.) /ˈtɑpɪk/ 論題、話題",
+
+15: "pollute (v.) /pəˈlut/ 污染\nsecondary (adj.) /ˈsɛkənˌdɛri/ 第二的、次要的\ntreasure (v.) /ˈtrɛʒɚ/ 珍愛、(n.) 財寶\nsemester (n.) /səˈmɛstɚ/ 學期",
+
+16: "calm (adj.) /kɑm/ 寧靜的、(v.) 變安靜、使鎮定\ndeliver (v.) /dɪˈlɪvɚ/ 遞送、發表、講、給……接生\nprecious (adj.) /ˈprɛʃəs/ 寶貴的\nwrist (n.) /rɪst/ 手腕",
+
+17: "distant (adj.) /ˈdɪstənt/ 遠離的\ngolf (n.) /ɡɑlf/ 高爾夫球\ndoubt (v.) /daʊt/ 懷疑、(n.) 懷疑\nmanner (n.) /ˈmænɚ/ 舉止、態度",
+
+18: "satisfy (v.) /ˈsætɪsˌfaɪ/ 使滿意\nunique (adj.) /juˈnik/ 獨特的\nvalue (n.) /ˈvælju/ 價值\nwound (v.) /wund/ 傷害、(n.) 傷口",
+
+19: "vocabulary (n.) /voˈkæbjəˌlɛri/ 字彙\nwhole (adj.) /hol/ 完整的\nwheel (n.) /wil/ 輪子\nyouth (n.) /juθ/ 青少年、青少年時代",
+
+20: "flashlight (n.) /ˈflæʃˌlaɪt/ 手電筒\ngenius (n.) /ˈdʒinjəs/ 天才\ntunnel (n.) /ˈtʌnəl/ 隧道\nsoap (n.) /sop/ 肥皂"};
+
+
+
+
+const mondayData2 = {
+2: "「歸」依佛門 → 皈\n「恭」逢其盛 → 躬\n「克」苦耐勞 → 刻",
+
+3: "同仇敵「慨」 → 愾\n天作之「和」 → 合\n曲高「合」寡 → 和",
+
+4: "醍醐「貫」頂 → 灌\n人文「匯」萃 → 薈\n迫不「急」待 → 及",
+
+5: "不「逕」而走 → 脛\n得魚忘「荃」 → 筌\n銀貨兩「迄」 → 訖",
+
+6: "「磬」竹難書 → 罄\n鳩占「雀」巢 → 鵲\n穩操勝「卷」 → 券",
+
+7: "來勢「凶」「凶」 → 洶\n孤高自「詡」 → 許\n安排就「序」 → 緒",
+
+8: "相得益「張」 → 彰\n真知「卓」見 → 灼\n一見「鐘」情 → 鍾",
+
+9: "重蹈覆「徹」 → 轍\n無所「是」從 → 適\n「插」血為盟 → 歃",
+
+10: "額「首」稱慶 → 手\n獨「豎」一幟 → 樹\n眾口「礫」金 → 鑠",
+
+11: "「儒」子可教 → 孺\n繁文「褥」節 → 縟\n滄海一「栗」 → 粟",
+
+12: "老態龍「鐘」 → 鍾\n進退「帷」谷 → 維\n飛「煌」騰達 → 黃",
+
+13: "「坐」無虛席 → 座\n「呱」噪不休 → 聒\n「喧」然大波 → 軒",
+
+14: "「致」人於死 → 置\n叱「咋」風雲 → 吒\n別出「新」裁 → 心",
+
+15: "一「愁」莫展 → 籌\n濫「芋」充數 → 竽\n「矻」立不搖 → 屹",
+
+16: "大學「肆」業 → 肄\n脾氣「繁」扭 → 彆\n「搶」詞奪理 → 強",
+
+17: "各行其「事」 → 是\n大聲「急」呼 → 疾\n急「功」好義 → 公",
+
+18: "不可思「異」 → 議\n出奇「至」勝 → 制\n「鬼」計多端 → 詭",
+
+19: "一「昧」付出 → 味\n鬼「釜」神工 → 斧\n天真「瀾」漫 → 爛",
+
+20: "臨陣「摩」槍 → 磨\n卑躬「曲」膝 → 屈\n「侮」人不倦 → 誨"
+
+
+};
+
+const tuesdayData2 = {
+2: "黯然神傷\n情緒低落沉悶，心情抑鬱憂傷。",
+3: "捨本逐末\n捨棄根本，而去追求末節；形容不顧重要的事情，而去注意無關緊要的事情。",
+4: "三緘其口\n嘴上加了三道封條；比喻說話極為謹慎，不輕易透露事情。",
+5: "學富五車\n形容人讀書很多，學問淵博。",
+6: "聲淚俱下\n一邊哭泣，一邊流淚；形容哀痛悲切的樣子。",
+7: "不寒而慄\n不是因為寒冷而發抖，而是因看到、聽到或想到害怕的事，因而驚恐不已。",
+8: "捉襟見肘\n衣服破舊，拉動衣襟時手肘會露出來。比喻生活窮困，或能力不足、事情太多而難以應付。",
+9: "大庭廣眾\n形容人多而公開的場合。",
+10: "如獲至寶\n形容極為珍愛所得到的東西。多用於物，也可用於人。",
+11: "星羅棋布\n像星星或棋子般排列散布；形容分布極廣，數量很多。",
+12: "滄海桑田\n大海變成農田，農田又變成大海；比喻世事變遷很大。",
+13: "失之交臂\n與好機會擦身而過，有惋惜的意思。",
+14: "左右逢源\n比喻做事得心應手，事事順遂而沒有阻礙。",
+15: "力挽狂瀾\n努力挽回險惡的局勢，或制止衰敗不正的風氣。",
+16: "難言之隱\n深藏於心，難以向他人訴說的秘密。",
+17: "優柔寡斷\n遇事猶豫不決，缺乏果斷的魄力與精神。",
+18: "篳路藍縷\n駕著柴車，穿著破舊的衣服，去開闢土地。現多用來形容開創事業的艱辛困苦。",
+19: "毛骨悚然\n因怪異、驚險或陰森的情景感到恐懼的樣子；有時也指感覺非常寒冷。",
+20: "豁然開朗\n由狹窄暗晦轉為開明亮；也常用來形容突然明白道理，或問題得到解決。"
+
+};
+
+const wednesdayData2 = {
+2: "黯然神傷\n一想起死去的小狗，我不禁黯然神傷起來。",
+3: "捨本逐末\n學生的本分就是把書讀好，不要捨本逐末地只想玩樂。",
+4: "三緘其口\n關於這起擄人勒贖案，偵辦的警方個個三緘其口，不肯透露半點口風。",
+5: "學富五車\n黃教授學富五車，是學生們請益的好對象。",
+6: "聲淚俱下\n趙婆婆聲淚俱下，規勸兒子要迷途知返，千萬不要一錯再錯。",
+7: "不寒而慄\n那部恐怖片，殺手陰森森的眼神，讓觀眾看得不寒而慄。",
+8: "捉襟見肘\n失業後，他的生活捉襟見肘，連三餐都有問題。",
+9: "大庭廣眾\n膽大包天的歹徒，竟然在大庭廣眾之下公然行搶。",
+10: "如獲至寶\n收到《哈利波特》這本書後，弟弟如獲至寶，一讀再讀。",
+11: "星羅棋布\n加拿大千島湖上，小島星羅棋布，是著名的觀光勝地。",
+12: "滄海桑田\n王先生五十年後再次返家，家鄉卻已滄海桑田，人事全非了。",
+13: "失之交臂\n因為你遲到，選拔已經結束了，你與代表學校參加比賽的機會失之交臂。",
+14: "左右逢源\n這次他能左右逢源地將問題解決，都要歸功於平日待人真誠，交友廣闊。",
+15: "力挽狂瀾\n岳飛雖然想力挽狂瀾，解救國家的危難，卻被奸人秦檜陷害，以莫須有的罪名入獄。",
+16: "難言之隱\n你有什麼難言之隱，不然為什麼偷偷幫助她，卻又不想讓她知道？",
+17: "優柔寡斷\n姐姐優柔寡斷的個性，讓她錯失了許多好機會。",
+18: "篳路藍縷\n臺灣今日的繁榮，都要歸功於先民篳路藍縷的努力。",
+19: "毛骨悚然\n一靠近這棟傳說中的鬼屋，我就覺得毛骨悚然。",
+20: "豁然開朗\n受到好友的鼓勵，他本來憂愁的心情一下子就豁然開朗了。"
+};
+
+const thursdayData2 = {
+2: "female (adj.) /ˈfimel/ 女性的、(n.) 雌性動物\nhighway (n.) /ˈhaɪˌwe/ 公路、幹道\npuzzle (v.) /ˈpʌzəl/ 使迷惑、(n.) 謎\nmango (n.) /ˈmæŋɡo/ 芒果",
+
+3: "kitten (n.) /ˈkɪtn/ 小貓\noverseas (adj.) /ˌovɚˈsiz/ 國外的、(adv.) 在海外\nthunder (n.) /ˈθʌndɚ/ 雷\nscarf (n.) /skɑrf/ 圍巾",
+
+4: "foolish (adj.) /ˈfulɪʃ/ 愚蠢的\ngarage (n.) /ɡəˈrɑʒ/ 車庫\njoke (v.) /dʒok/ 開玩笑、(n.) 笑話\npanda (n.) /ˈpændə/ 貓熊",
+
+5: "flat tire (n.) /ˌflæt ˈtaɪɚ/ 爆胎\nformal (adj.) /ˈfɔrməl/ 正式的\nmagician (n.) /məˈdʒɪʃən/ 魔術師\nvolleyball (n.) /ˈvɑliˌbɔl/ 排球",
+
+6: "helicopter (n.) /ˈhɛlɪˌkɑptɚ/ 直昇機\nnaughty (adj.) /ˈnɔti/ 頑皮的\nnovel (n.) /ˈnɑvəl/ 小說\nparking lot (n.) /ˈpɑrkɪŋ ˌlɑt/ 停車場",
+
+7: "government (n.) /ˈɡʌvɚnmənt/ 政府\nhaircut (n.) /ˈhɛrˌkʌt/ 理髮\nliquid (n.) /ˈlɪkwɪd/ 液體\nstormy (adj.) /ˈstɔrmi/ 暴風雨的",
+
+8: "jealous (adj.) /ˈdʒɛləs/ 嫉妒的\nmicrowave (n.) /ˈmaɪkroˌwev/ 微波爐\nprincipal (n.) /ˈprɪnsəpəl/ 校長\nsneakers (n.) /ˈsnikɚz/ 球鞋",
+
+9: "raincoat (n.) /ˈrenˌkot/ 雨衣\nstationery (n.) /ˈsteʃəˌnɛri/ 文具\ntrap (v.) /træp/ 設陷阱、(n.) 陷阱、圈套\nwaterfall (n.) /ˈwɔtɚˌfɔl/ 瀑布",
+
+10: "freezer (n.) /ˈfrizɚ/ 冰箱的冷凍部、冷凍箱\nkindergarten (n.) /ˈkɪndɚˌɡɑrtn/ 幼稚園\noverweight (adj.) /ˌovɚˈwet/ 超重的、過重的\nsupper (n.) /ˈsʌpɚ/ 晚餐",
+
+11: "alarm (n.) /əˈlɑrm/ 警報、驚慌、警鈴\nfancy (adj.) /ˈfænsi/ 花俏的、特級的\nhero (n.) /ˈhɪro/ 英雄\nlamb (n.) /læm/ 小羊",
+
+12: "swan (n.) /swɑn/ 天鵝\ncabbage (n.) /ˈkæbɪdʒ/ 包心菜\nprofessor (n.) /prəˈfɛsɚ/ 教授\nankle (n.) /ˈæŋkəl/ 腳踝",
+
+13: "pigeon (n.) /ˈpɪdʒən/ 鴿子\nvalley (n.) /ˈvæli/ 山谷\nchemistry (n.) /ˈkɛmɪstri/ 化學\nthief (n.) /θif/ 小偷",
+
+14: "cartoon (n.) /kɑrˈtun/ 卡通\nsand (n.) /sænd/ 沙\nhuman (n.) /ˈhjumən/ 人、(adj.) 人類的\nteapot (n.) /ˈtiˌpɑt/ 茶壺",
+
+15: "crayon (n.) /ˈkreˌɑn/ 蠟筆\ndolphin (n.) /ˈdɑlfɪn/ 海豚\ngold (adj.) /ɡold/ 金製的、(n.) 黃金\nwood (n.) /wʊd/ 木材",
+
+16: "ketchup (n.) /ˈkɛtʃəp/ 番茄醬\nbarber (n.) /ˈbɑrbɚ/ 男理髮師\ncotton (n.) /ˈkɑtn/ 棉花\neagle (n.) /ˈiɡəl/ 老鷹",
+
+17: "mosquito (n.) /məˈskito/ 蚊子\nbeard (n.) /bɪrd/ 鬍子\nforest (n.) /ˈfɔrəst/ 森林\nhall (n.) /hɔl/ 大廳、講堂",
+
+18: "monster (n.) /ˈmɑnstɚ/ 怪物\ngeography (n.) /dʒiˈɑɡrəfi/ 地理\nballoon (n.) /bəˈlun/ 汽球\ncereal (n.) /ˈsirɪəl/ 麥片",
+
+19: "fence (n.) /fɛns/ 柵欄、籬笆\nJazz (n.) /dʒæz/ 爵士樂\ncable (n.) /ˈkebəl/ 纜索、有線電視\ndeer (n.) /dɪr/ 鹿",
+
+20: "hammer (v.) /ˈhæmɚ/ 敲打、(n.) 鎚\nfilm (n.) /fɪlm/ 膠捲、影片\nnet (n.) /nɛt/ 網子\nnation (n.) /ˈneʃən/ 國家"
+
+};
+
+
+const fridayData2 = {
+
+2: "trade (n.) /tred/ 貿易\niron (v.) /ˈaɪɚn/ 熨燙、(n.) 鐵、熨斗\nmodel (n.) /ˈmɑdl/ 模型、模特兒\nsailor (n.) /ˈselɚ/ 水手",
+
+3: "dinosaur (n.) /ˈdaɪnəˌsɔr/ 恐龍\nsincere (adj.) /sɪnˈsɪr/ 誠懇的\ndonkey (n.) /ˈdɑŋki/ 驢子\nearrings (n.) /ˈɪrˌrɪŋz/ 耳環",
+
+4: "diplomat (n.) /ˈdɪpləˌmæt/ 外交官\npajamas (n.) /pəˈdʒɑməz/ 睡衣\nsilly (adj.) /ˈsɪli/ 傻的、無聊的\ntower (n.) /ˈtaʊɚ/ 塔",
+
+5: "ink (n.) /ɪŋk/ 墨水\nneither (adj.) /ˈniðɚ/ 兩者都不、(adv.) 也不\ncure (v.) /kjʊr/ 治癒、(n.) 痊癒\nkingdom (n.) /ˈkɪŋdəm/ 王國",
+
+6: "cancer (n.) /ˈkænsɚ/ 癌症\npump (v.) /pʌmp/ 跳動、使用唧筒、(n.) 唧筒、打氣機、抽水機\nroot (n.) /rut/ 根\nlevel (n.) /ˈlɛvəl/ 水平線",
+
+7: "air conditioner (n.) /ˈɛr kənˌdɪʃənɚ/ 冷氣機\njournalist (n.) /ˈdʒɝnəlɪst/ 新聞工作者\ncustom (n.) /ˈkʌstəm/ 習俗\nrelative (adj.) /ˈrɛlətɪv/ 有關的、相對的、(n.) 親戚",
+
+8: "chubby (adj.) /ˈtʃʌbi/ 圓胖的\ndoughnut (n.) /ˈdoʊˌnʌt/ 油炸圈餅\nshower (v.) /ˈʃaʊɚ/ 傾注、洗淋浴、(n.) 陣雨、淋浴\ntill (prep.) /tɪl/ 直到",
+
+9: "blouse (n.) /blaʊs/ 女裝短上衣\ncloud (n.) /klaʊd/ 雲\npresident (n.) /ˈprɛzɪdənt/ 校長、總統\nhandkerchief (n.) /ˈhæŋkɚtʃɪf/ 手帕",
+
+10: "address (n.) /əˈdrɛs/ 地址、演說\narmy (n.) /ˈɑrmi/ 軍隊、大群\nedge (n.) /ɛdʒ/ 邊緣、優勢\nguest (n.) /ɡɛst/ 客人",
+
+11: "beer (n.) /bɪr/ 啤酒\nchoice (n.) /tʃɔɪs/ 選擇\nhunter (n.) /ˈhʌntɚ/ 獵人\nstorm (v.) /stɔrm/ 猛攻、(n.) 暴風雨",
+
+12: "fashionable (adj.) /ˈfæʃənəbəl/ 時尚的\noperation (n.) /ˌɑpəˈreʃən/ 手術、操作\nwaste (v.) /west/ 浪費、(n.) 浪費\nnephew (n.) /ˈnɛfju/ 侄子、外甥",
+
+13: "backward (adj.) /ˈbækwɚd/ 向後的、落後的、(adv.) 向後地、落後地\npale (adj.) /pel/ 蒼白的、黯淡的\nshelf (n.) /ʃɛlf/ 架子\nshrimp (n.) /ʃrɪmp/ 蝦子",
+
+14: "adult (n.) /əˈdʌlt/ 成年人\nfoggy (adj.) /ˈfɑɡi/ 有霧的\nplatform (n.) /ˈplætˌfɔrm/ 月台、平台\nwolf (n.) /wʊlf/ 狼",
+
+15: "beauty (n.) /ˈbjuti/ 美貌、美人\ncockroach (n.) /ˈkɑkˌrotʃ/ 蟑螂\nneedle (n.) /ˈnidəl/ 針\nValentine (n.) /ˈvæləntaɪn/ 情人節",
+
+16: "current (adj.) /ˈkɝənt/ 現行的、(n.) 水流、電流\ngranddaughter (n.) /ˈɡrænˌdɔtɚ/ 孫女、外孫女\nnapkin (n.) /ˈnæpkɪn/ 餐巾\nsaucer (n.) /ˈsɔsɚ/ 淺碟",
+
+17: "blank (n.) /blæŋk/ 空白\ndessert (n.) /dɪˈzɝt/ 餐後甜點\nsneaky (adj.) /ˈsniki/ 鬼鬼祟祟的\ntangerine (n.) /ˌtændʒəˈrin/ 橘子",
+
+18: "broad (adj.) /brɔd/ 寬廣的\ncassette (n.) /kəˈsɛt/ 卡式磁帶\nheight (n.) /haɪt/ 高度\nkilometer (n.) /kəˈlɑmətɚ/ 公里",
+
+19: "bomb (n.) /bɑm/ 炸彈\ngentleman (n.) /ˈdʒɛntəlmən/ 紳士\nlocker (n.) /ˈlɑkɚ/ 衣物櫃\npainter (n.) /ˈpentɚ/ 油漆匠、畫家",
+
+20: "exist (v.) /ɪɡˈzɪst/ 存在\nrailroad (n.) /ˈrelˌrod/ 鐵路\nsteam (v.) /stim/ 蒸、(n.) 蒸氣\ncollege (n.) /ˈkɑlɪdʒ/ 學院、大學"
+};
+
+
+    function init() { setToToday(); }
+    function setToToday() { const dp = document.getElementById('date-picker'); const now = new Date(); dp.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; renderContent(now); }
+    function handleDateChange() { renderContent(new Date(document.getElementById('date-picker').value)); }
+   
+function formatToCircle(text) {
+    return text.replace(/「(.)」/g, '<span class="wrong-word-container">$1<span class="red-circle"></span></span>');
+}
+
+
+function formatEnglish(text) {
+    return text.split("\n").map(line => {
+
+        const match = line.match(/^(.+?)\s(\(.+?\))\s(\/.+?\/)\s(.+)$/);
+
+        if (match) {
+            const word = match[1];
+            const type = match[2];
+            const phonetic = match[3];
+            const meaning = match[4];
+
+            return `${word} ${phonetic} ${type} ${meaning}`;
+        }
+
+        return line;
+
+    }).join("\n");
+}
+    
+    
+function renderContent(dateObj) {
+
+    
+    const d1 = new Date(FALL_START); 
+    const d2 = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+
+
+
+
+let week;
+let semester;
+
+if (d2 >= SPRING_START) {
+    semester = 2;
+    week = Math.floor((d2 - SPRING_START) / 86400000 / 7) + 2;
+} else {
+    semester = 1;
+    week = Math.floor((d2 - d1) / 86400000 / 7) + 1;
+}
+
+const day = dateObj.getDay();
+
+
+        document.getElementById('weekday-display').innerText = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"][day];
+        document.getElementById('week-display').innerText = (d2 < d1) ? "尚未開學" : `第 ${String(week).padStart(2, '0')} 週`;
+        
+        const area = document.getElementById('display-area');
+        if (week >= 1 && week <= 20) {
+            if (day === 1) { area.className = "main-text-chinese"; area.innerHTML = formatToCircle(semester === 1 ? mondayData1[week] : mondayData2[week] || "本週無資料"); }
+            else if (day === 2) { 
+                area.className = "idiom-layout";
+                const data = (semester === 1 ? tuesdayData1[week] : tuesdayData2[week]) || "本週無資料"; const parts = data.split('\n'); 
+                area.innerHTML = `<div class="idiom-term">${parts[0] || ""}</div><div class="idiom-expl">${parts[1] || ""}</div>`; 
+            }
+
+else if (day === 3) { 
+    area.className = "idiom-layout";
+   const data = (semester === 1 ? wednesdayData1[week] : wednesdayData2[week])  || "本週無資料"; 
+    const parts = data.split('\n');
+
+    area.innerHTML = 
+    `<div class="idiom-term">${parts[0] || ""}</div>
+     <div class="idiom-expl">${parts[1] || ""}</div>`;
+}
+
+else if (day === 4) { 
+    area.className = "main-text-english"; 
+    area.innerHTML = formatEnglish(semester === 1 ? thursdayData1[week] : thursdayData2[week]) || "本週無資料"; 
+}
+
+else if (day === 5) { 
+    area.className = "main-text-english"; 
+    area.innerHTML = formatEnglish(semester === 1 ? fridayData1[week] : fridayData2[week]) || "本週無資料"; 
+}
+
+else { 
+    area.className = "main-text-default"; 
+    area.innerText = `今天是星期${"日一二三四五六"[day]}，請抄寫聯絡簿事項。`; 
+}
+         
+        } else { area.className = "main-text-default"; area.innerText = "不在學期範圍內。"; }
+    }
+    init();
+</script>
+</body>
+</html>
